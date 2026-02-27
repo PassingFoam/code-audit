@@ -199,7 +199,8 @@ def analyze_controllability(sink_param, source_location):
 | XSS | 过滤 `<script>` | 使用 `<img onerror>` |
 | XSS | `htmlspecialchars()` 无参数 | 属性注入 |
 | 命令注入 | 过滤 `;` | 使用 `|`, `&`, `\n` |
-| 路径遍历 | 过滤 `../` | 使用 `....//` 或编码 |
+| 路径遍历 | 过滤 `../` | 使用 `....//`（删除匹配后形成新`../`）|
+| 路径遍历 | 过滤 `..` | 编码绕过（需存在二次解码场景）|
 
 ```python
 # 示例: 净化有效性检查

