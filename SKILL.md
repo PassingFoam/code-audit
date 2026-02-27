@@ -353,7 +353,7 @@ For complete audit methodology, vulnerability patterns, and detection rules, see
 
 ## Version
 
-- **Current**: 1.0
+- **Current**: 1.1-improve_by_pf
 - **Updated**: 2026-02-13
 
 ### v1.0 (Initial Public Release)
