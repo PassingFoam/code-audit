@@ -515,6 +515,89 @@ SKIP不意味着"安全"，而是"该攻击面在此项目中不存在"。
 
 Phase 1 核心产出：**认证链完整画像** + 技术栈画像 + 模块地图 + 攻击面清单 + 安全机制识别 + SKIP列表
 
+---
+
+### Phase 2.0.5: Sink 调用点完整性验证 ⭐ 新增
+
+> **目的**: 防止"找到一个调用点就停止"导致的遗漏
+> **原则**: 分析一个 Sink 时，必须找到**所有调用点**
+
+**核心问题**:
+> "找到了一个调用此 Sink 的方法，还有其他调用者吗？"
+
+**执行流程**:
+
+```
+Step 1: 识别 Sink
+        ↓
+Step 2: 枚举所有调用点（关键步骤！）
+        ↓
+Step 3: 对每个调用点执行污点分析
+        ↓
+Step 4: 验证调用点覆盖率
+```
+
+**调用点覆盖率矩阵**:
+
+| Sink | 调用点总数 | 已分析 | 未分析 | 状态 |
+|------|-----------|--------|--------|------|
+| FileUtils.upload() | 5 | 3 | **2** | ⚠️ 继续 |
+| ZipUtils.unzip() | 3 | 3 | 0 | ✅ 完成 |
+
+**门控条件**:
+- 找到第一个调用点后，必须追问："还有其他调用者吗？"
+- 调用点覆盖率 < 100% 时，审计报告必须标注遗漏风险
+
+---
+
+### Phase 2.1: 调用链一致性检查 ⭐ 新增
+
+> **目的**: 对比同一 Sink 的不同调用点的安全措施
+
+**核心问题**:
+> "调用同一 Sink 的不同方法，安全措施是否一致？"
+
+**调用链对比矩阵模板**:
+
+```
+Sink: CmsFileUtils.upload(file, path)
+┌───────────────────────────────────────┬──────────┬──────────┬──────────┬──────────┐
+│ 调用点                                │ 路径验证 │ 类型检查 │ 权限验证 │ 状态     │
+├───────────────────────────────────────┼──────────┼──────────┼──────────┼──────────┤
+│ CmsWebFileAdminController.upload()    │ ✅       │ ✅       │ ✅       │ Safe     │
+│ SysSiteAdminController.doUpload...    │ ❌       │ ⚠️       │ ✅       │ **VULN** │
+│ TemplateAdminController.doUpload()    │ ✅       │ ✅       │ ✅       │ Safe     │
+└───────────────────────────────────────┴──────────┴──────────┴──────────┴──────────┘
+
+发现：SysSiteAdminController.doUploadSitefile() 缺少路径验证！
+```
+
+**判定规则**:
+- 同一 Sink 的调用点安全措施不一致 → 标记为潜在漏洞
+- 必须解释差异原因（是否有业务合理性？）
+
+**示例：遗漏是如何发生的**
+
+```
+❌ 错误的审计过程：
+1. 发现 Sink: CmsFileUtils.upload()
+2. 找到调用点: CmsWebFileAdminController.upload()
+3. 分析: 有 getSafeFileName() → 安全 ✓
+4. 停止：没有追问"还有其他调用者吗？"
+5. 遗漏: SysSiteAdminController.doUploadSitefile() 无验证
+
+✅ 正确的审计过程：
+1. 发现 Sink: CmsFileUtils.upload()
+2. 枚举所有调用点:
+   - CmsWebFileAdminController.upload()
+   - SysSiteAdminController.doUploadSitefile() ← 也要分析
+   - TemplateAdminController.doUpload()
+3. 对每个调用点分析安全措施
+4. 发现 SysSiteAdminController.doUploadSitefile() 缺少验证
+```
+
+---
+
 ### Phase 2A: 语义驱动审计 (Primary, 60% 精力)
 
 > LLM 基于 Phase 1 的攻击面地图，自主选择审计路径和搜索策略。

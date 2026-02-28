@@ -40,6 +40,7 @@ Step 3: 侦察 → Tech stack identification, attack surface mapping
 Step 4: 执行计划 → STOP and wait for user confirmation
 Step 5: 执行 → Execute according to mode
 Step 6: 报告门控 → Verify coverage before generating report
+Step 7: 报告保存 → Save report to `.audit-reports/` directory (mandatory)
 ```
 
 **Important**: Step 4 requires user confirmation before proceeding. Never skip this gate.
