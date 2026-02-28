@@ -93,24 +93,8 @@ This skill should be used when:
 1. Reconnaissance   → Identify tech stack, map attack surface
 2. Vulnerability Hunt → Search patterns, trace data flow
 3. Verification    → Confirm exploitability, filter false positives
-4. Docker Verify   → [NEW] Dynamic verification in sandbox (optional)
-5. Report          → Document findings with PoC and fixes
+4. Report          → Document findings with PoC and fixes
 ```
-
-### Docker部署验证
-
-对于深度审计，可使用Docker沙箱进行**动态验证**:
-
-```bash
-# 生成验证环境
-code-audit --generate-docker-env
-
-# 启动并验证
-docker-compose up -d
-docker exec -it sandbox python /workspace/poc/verify_all.py
-```
-
-详见: `references/core/docker_verification.md`
 
 ---
 
@@ -235,6 +219,31 @@ Sink 调用点覆盖率:
 - "找到了一个调用点，还有其他调用者吗？"
 - "这个 Sink 的所有调用路径都分析了吗？"
 
+### Step 5.6: Agent 漏洞即时输出
+
+> **目的**: 防止漏洞详情在上下文中累积导致超时
+
+**触发条件**: 每个 Agent 完成一个漏洞分析后立即执行
+
+**输出路径**: `.audit-reports/.tmp/agent_{维度}_{序号}.md`
+
+**输出格式**: 使用 agent.md 中的「漏洞报告模板 (标准版)」
+
+**⚠️ 输出前强制检查**:
+
+| 检查项 | 验证方法 |
+|--------|---------|
+| 调用链 | 是否包含 `[入口点] → ... → [Sink]` 格式 |
+| 数据流路径 | 是否包含 `[Source] → [传播] → [Sink]` 格式 |
+| PoC | 是否包含 HTTP 请求或代码 payload |
+| 代码片段 | 是否有 Read 工具的实际输出支撑 |
+
+**上下文保留**: 仅保留漏洞摘要表（不保留详细分析内容）
+
+| 严重度 | 文件:行号 | 漏洞类型 | 状态 |
+|--------|----------|---------|------|
+| Critical | main.py:45 | SQLi | 已验证 |
+
 ### Step 6: 报告门控
 
 生成报告前验证：
@@ -248,24 +257,36 @@ Sink 调用点覆盖率:
 
 不满足前置条件 → 不得生成最终报告。
 
+### Step 6.5: 上下文压缩触发
+
+> **目的**: 当上下文接近限制时主动压缩，防止中断
+
+**触发条件**: 感知上下文使用率较高时（约 70%）
+
+**压缩优先级**:
+
+| 优先级 | 压缩目标 | 压缩方法 |
+|--------|---------|---------|
+| 1 | FILES_READ 详细结论 | 保留文件路径 + 关键标签，删除详细描述 |
+| 2 | Agent 历史输出 | 保留摘要（漏洞数/严重度），删除详细分析 |
+| 3 | Grep 结果 | 保留匹配数和关键文件路径 |
+
+**压缩后格式**:
+```
+# FILES_READ 压缩示例
+# 压缩前: src/main.py: 包含数据库连接，使用 SQLAlchemy ORM，User.query.filter() 在 L45 存在潜在 SQL 注入...
+# 压缩后: main.py:[SQLAlchemy,SQLi?:L45]
+
+# Agent 输出压缩示例
+# 压缩前: 完整的 HEADER + TRANSFER BLOCK + 详细发现...
+# 压缩后: Agent_D1: 5 findings (Critical:1, High:2, Medium:2)
+```
+
+**⚠️ 重要**: 压缩前确保漏洞已通过 Step 5.6 写入临时文件
+
 ### Step 7: 报告生成与保存
 
 > **强制要求**: 审计完成后**必须**将报告保存到文件，不得仅输出到对话。
-
-**⚠️ 强制检查**: 生成报告前必须执行「报告输出强制检查」
-
-#### Step 7.0 报告门控验证
-
-对每个漏洞执行以下检查，不通过则不得输出最终报告：
-
-| 检查项 | 验证方法 |
-|--------|---------|
-| 调用链 | 是否包含 `[入口点] → ... → [Sink]` 格式 |
-| 数据流路径 | 是否包含 `[Source] → [传播] → [Sink]` 格式 |
-| PoC | 是否包含 HTTP 请求或代码 payload |
-| 代码片段 | 是否有 Read 工具的实际输出支撑 |
-
----
 
 **报告模板**: 使用 `agent.md` 中的「漏洞报告模板 (标准版)」
 
@@ -278,27 +299,36 @@ Sink 调用点覆盖率:
 [REPORT_SAVED] 报告已保存至: {完整路径}
 ```
 
-**⚠️ 防超时策略**: 漏洞数 > 5 时，采用「分片写入 → 整合」策略：
+**⚠️ 防超时策略**: 整合 Step 5.6 生成的 Agent 临时报告
 
 ```
-Step 7.1: 分片写入临时文件
-    每批 5 个漏洞写入一个临时文件，每个漏洞都需要按照漏洞报告模板 (标准版)完整记录:
-    - .audit-reports/.tmp/part_001.md
-    - .audit-reports/.tmp/part_002.md
-    - ...
+Step 7.1: 整合 Agent 临时报告 + 门禁验证
+    读取 .audit-reports/.tmp/agent_*.md 所有文件
+    对每个漏洞执行门禁验证（二次检查）:
+    | 检查项 | 验证方法 |
+    |--------|---------|
+    | 调用链 | 是否包含 `[入口点] → ... → [Sink]` 格式 |
+    | 数据流路径 | 是否包含 `[Source] → [传播] → [Sink]` 格式 |
+    | PoC | 是否包含 HTTP 请求或代码 payload |
+    | 代码片段 | 是否有 Read 工具的实际输出支撑 |
 
-Step 7.2: 整合完整报告
-    使用 Bash cat 合并所有分片:
-    cat .audit-reports/.tmp/part_*.md > .audit-reports/audit-{mode}-{timestamp}.md
+Step 7.2: 去重合并
+    - 同文件 + 同行号 → 合并
+    - 同文件 + 同漏洞类型 + 行号差 < 10 → 合并
 
-Step 7.3: 清理临时文件
+Step 7.3: 生成完整报告
+    - 执行摘要（漏洞数、严重度分布）
+    - 覆盖率矩阵
+    - 详细漏洞（按严重度排序）
+
+Step 7.4: 清理临时文件
     rm -rf .audit-reports/.tmp/
 
-Step 7.4: 输出确认消息
+Step 7.5: 输出确认消息
     [REPORT_SAVED] 报告已保存至: {完整路径}
 ```
 
-**关键原则**: 对话中仅输出摘要，详细内容写入文件。
+**关键原则**: 对话中仅输出摘要，详细内容从临时文件读取整合。
 
 ---
 
@@ -436,6 +466,5 @@ For complete audit methodology, vulnerability patterns, and detection rules, see
 ### v1.0 (Initial Public Release)
 - 9语言143项强制检测清单 (`references/checklists/`)
 - 双轨并行审计框架: Sink-driven + Control-driven + Config-driven
-- Docker部署验证框架 (`references/core/docker_verification.md`)
 - WooYun 88,636案例库集成
 - 安全控制矩阵框架
