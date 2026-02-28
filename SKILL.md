@@ -257,12 +257,33 @@ Sink 调用点覆盖率:
 **保存规则**:
 - 路径: `{项目根目录}/.audit-reports/`
 - 文件名: `audit-{mode}-{YYYYMMDD-HHmmss}.md`
-- 使用 Write 工具保存完整报告
 
 **必须输出**:
 ```
 [REPORT_SAVED] 报告已保存至: {完整路径}
 ```
+
+**⚠️ 防超时策略**: 漏洞数 > 5 时，采用「分片写入 → 整合」策略：
+
+```
+Step 7.1: 分片写入临时文件
+    每批 5 个漏洞写入一个临时文件:
+    - .audit-reports/.tmp/part_001.md
+    - .audit-reports/.tmp/part_002.md
+    - ...
+
+Step 7.2: 整合完整报告
+    使用 Bash cat 合并所有分片:
+    cat .audit-reports/.tmp/part_*.md > .audit-reports/audit-{mode}-{timestamp}.md
+
+Step 7.3: 清理临时文件
+    rm -rf .audit-reports/.tmp/
+
+Step 7.4: 输出确认消息
+    [REPORT_SAVED] 报告已保存至: {完整路径}
+```
+
+**关键原则**: 对话中仅输出摘要，详细内容写入文件。
 
 ---
 
