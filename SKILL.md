@@ -363,13 +363,17 @@ Step 7.4: 报告门禁验证 → 必须执行
    - Medium/Low 缺失 → 警告，可继续保存
 ```
 
-**禁止跳过**: 未输出 `[REPORT_GATE]` 前不得执行 Step 7.5
+**禁止跳过**: 未输出 `[REPORT_GATE]` 前不得执行 Step 7.5 保存报告
 
-Step 7.5: 保留临时报告（不删除）
+Step 7.5: 保存报告到文件
+    使用 Write 工具将报告保存至:
+    - 路径: `{项目根目录}/.audit-reports/audit-{mode}-{YYYYMMDD-HHmmss}.md`
+
+Step 7.6: 保留临时报告（不删除）
     将 `.audit-reports/.tmp/` 重命名为 `.audit-reports/agent_reports_{timestamp}/`
     临时报告作为审计证据保留，便于追溯每个 Agent 的发现过程
 
-Step 7.6: 输出确认消息
+Step 7.7: 输出确认消息
     [REPORT_SAVED] 报告已保存至: {完整路径}
 ```
 
