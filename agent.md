@@ -1191,9 +1191,7 @@ HOTSPOTS: {file:line:断点描述} | ... (R2 优先深入，含断点上下文)
 
 ### 发现详情（仅 Critical 和需要 PoC 的 High，每条 ≤5 行）
 
-> **★ 漏洞详情已持久化**: 详细分析已写入 `.audit-reports/.tmp/agent_{维度}_{序号}.md`，此处仅保留摘要
-
-**[C-01] JWT无签名验证** → 详见临时报告文件
+**[C-01] JWT无签名验证**
 代码: `JWT.decode(token)` 替代 `JWT.require(algo).build().verify(token)`
 数据流: Request→TokenFilter.doFilter()→TokenUtils.validate()→JWT.decode()→userBOByToken()
 影响: 伪造任意 uid 的 JWT 即可冒充管理员
@@ -1204,8 +1202,8 @@ HOTSPOTS: {file:line:断点描述} | ... (R2 优先深入，含断点上下文)
 **输出预算规则**（Agent 内部执行）:
 - HEADER 段: ≤ 400 字 + TRANSFER BLOCK: ≤ 400 字（总 800 字，分两段防截断，必须完整输出）
 - 发现表格: 每条 1 行 ≤ 150 字，最多 20 行
-- 发现详情: 仅摘要，详细内容已写入临时报告文件
-- **总输出目标: ≤ 3000 字**（漏洞详情已持久化，大幅减少上下文占用）
+- 发现详情: 仅 Critical 和 High，每条 ≤5 行
+- **总输出目标: ≤ 5000 字**
 - 禁止: 输出大段原始代码（>3行）、完整文件内容、冗长的修复建议
 
 **自动注入模板 — R1（复制到每个 R1 Agent prompt）**:
@@ -1305,7 +1303,7 @@ HOTSPOTS: {file:line:断点描述} | ... (R2 优先深入，含断点上下文)
      - Agent 有 HEADER 但发现 < 3 条 → 维度标记 ⚠️，纳入 R2 浅覆盖
 
   4. 预防优化: 如同一审计中 ≥2 个 Agent 发生截断 →
-     后续 Agent 启动时追加提示: "输出预算严格 ≤ 3000 字"
+     后续 Agent 启动时追加提示: "输出预算严格 ≤ 5000 字"
 ```
 
 ---
