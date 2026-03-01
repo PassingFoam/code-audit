@@ -327,8 +327,9 @@ Step 7.3: 生成完整报告
     - 覆盖率矩阵
     - 详细漏洞（按严重度排序）
 
-Step 7.4: 清理临时文件
-    rm -rf .audit-reports/.tmp/
+Step 7.4: 保留临时报告（不删除）
+    将 `.audit-reports/.tmp/` 重命名为 `.audit-reports/agent_reports_{timestamp}/`
+    临时报告作为审计证据保留，便于追溯每个 Agent 的发现过程
 
 Step 7.5: 输出确认消息
     [REPORT_SAVED] 报告已保存至: {完整路径}
