@@ -1153,6 +1153,8 @@ COVERAGE: D1=✅(3,fan=5/12), D2=⚠️(1,fan=1/8), D3=❌, ...
   sink-driven 维度: fan=已追踪文件数/Grep命中文件数
   control-driven 维度(D3/D9): epr=已验证端点数/矩阵总端点数, crud_types=N
   示例: D3=✅(2,epr=35/45,crud_types=5), D9=⚠️(1,epr=10/45,crud_types=2)
+FLOW_HASH: {source_file}:{source_line}→{sink_file}:{sink_line} | ...
+  用途: 快速识别重复的数据流路径，相同 FLOW_HASH 的发现需合并
 UNCHECKED: D1:[orderBy injection]: ORDER BY ${param} | D2:[session fixation]: session.getId()
 UNFINISHED: {描述}|{原因: 超时/超预算/需下轮深入}, ...
 STATS: tools={N}/50 | files_read={N} | grep_patterns={N} | endpoints_audited={N}/{total} | time=~{N}min
@@ -1229,9 +1231,43 @@ HOTSPOTS: {file:line:断点描述} | ... (R2 优先深入，含断点上下文)
       外部输入(Source) 或到达 3 层上限。每层用 Read offset/limit 验证。
    c. 中间转换层若接受外部参数但无清洗/参数化 → 标记为独立注入入口（可能被多个 Sink 共享）。
    d. 此规则确保不遗漏"Source 经过 Builder/Provider 间接到达 Sink"的注入路径。
-10. ★ 截断防御（必须严格遵守）:
+10. ★ 攻击路径输出格式（必须严格遵守）:
+   a. 每个步骤必须包含:
+      - 步骤编号: [步骤N]
+      - 文件位置 + 函数名: file.ext:行号 | funcName()
+      - 具体代码: 该行实际代码
+      - 操作类型: 污点引入/传递/拼接/到达Sink
+      - 认证要求: 仅入口点需标注
+   b. 操作类型分类:
+      - 污点引入: Source 点，用户可控数据进入（标注认证要求）
+      - 污点传递: 变量赋值、函数参数传递、跨层调用
+      - 污点拼接: 字符串拼接、数组组装
+      - 污点到达Sink: 危险函数调用（标注Sink类型）
+   c. 攻击路径摘要必填:
+      - 调用层级: 层级深度和各层名称
+      - 数据跨度: 行数/函数数/文件数
+      - 中间变量: 列出所有传递变量
+      - 净化检查: 标注每个净化点及其有效性
+   d. Slot 类型标注:
+      - SQL-val: 值位置，参数化有效
+      - SQL-ident: 标识符位置，需白名单
+      - CMD-argument: 命令参数
+      - FILE-path: 文件路径
+   e. 步骤数限制 (最大5步):
+      - 步骤 ≤ 5: 完整展示每步
+      - 步骤 > 5: 首尾各2步 + 中间合并为"传递N层"
+   f. 模式分级输出:
+      - quick: 仅 Source → Sink (无步骤分解)
+      - standard: 添加步骤分解 (≤5步)
+      - deep: 完整摘要 + 净化分析表
+   g. 去重检查:
+      - 输出前检查 FLOW_HASH 是否与已有发现重复
+      - FLOW_HASH = {source位置}→{sink位置}
+      - 重复时合并而非新建条目
+      - 合并后标注: "合并自: 发现A ({agent_id}), 发现B ({agent_id})"
+11. ★ 截断防御（必须严格遵守）:
    a. 输出第一段必须是 === HEADER START === ... === HEADER END === 元数据块
-      含: COVERAGE, UNCHECKED, UNFINISHED, STATS, FILES_READ, GREP_DONE 六个字段
+      含: COVERAGE, FLOW_HASH, UNCHECKED, UNFINISHED, STATS, FILES_READ, GREP_DONE 七个字段
    b. HEADER ≤ 400 字 + TRANSFER BLOCK ≤ 400 字（总 800 字）。即使 findings 被截断，HEADER+TRANSFER 仍可存活。
    c. 发现列表用表格格式（每条 1 行），详情仅限 Critical + 高置信 High。
    d. 总输出 ≤ 5000 字。超出预算时: 压缩详情 > 删减 Low 发现 > 绝不压缩 HEADER。
@@ -1399,33 +1435,36 @@ HOTSPOTS: {file:line:断点描述} | ... (R2 优先深入，含断点上下文)
 ### 漏洞代码
 [代码片段 - 必须来自实际 Read 工具输出]
 
-### 调用链 (Call Chain) - 必填
-```
-[入口点] Controller.method() → file:line
-    ↓
-[中间层] Service.process() → file:line
-    ↓
-[数据层] DAO.execute() → file:line
-    ↓
-[Sink] 危险函数调用 → file:line
-```
+### 攻击路径 (Source → Sink) - 必填
 
-### 数据流路径 (Source → Sink) - 必填
-```
-[Source] 用户输入点
-    │ 位置: file:line
-    │ 类型: HTTP参数/Cookie/Header
-    │ 代码: param = request.getParameter("id")
-    ↓
-[传播] 变量传递/处理
-    │ 位置: file:line
-    │ 操作: 污点传递 (无净化/部分净化)
-    ↓
-[Sink] 危险函数
-    │ 位置: file:line
-    │ 类型: SQL执行/命令执行/文件操作
-    │ 代码: stmt.executeQuery(sql)
-```
+[步骤1] UserController.java:23 | getUser()
+        代码: String id = request.getParameter("id")
+        操作: 污点引入 (HTTP参数) | 认证: 是
+        ↓
+[步骤2] UserService.java:45 | findUser(id)
+        代码: return userDao.query(id);
+        操作: 污点传递 (跨层调用)
+        ↓
+[步骤3] UserDao.java:67 | query(id)
+        代码: String sql = "SELECT * FROM t WHERE id=" + id
+        操作: 污点拼接 (字符串拼接)
+        ↓
+[步骤4] UserDao.java:70
+        代码: stmt.executeQuery(sql)
+        操作: 污点到达Sink (SQL执行)
+
+**攻击路径摘要**:
+- 调用层级: Controller → Service → DAO (3层)
+- 数据跨度: 47行 | 3个函数 | 3个文件
+- 中间变量: id → sql
+- 净化检查: 无净化 / 有净化但可绕过 (详见下方)
+- Slot类型: SQL-val
+
+### 净化分析 (deep模式必填)
+| 位置 | 函数/方法 | 有效性 | 绕过可能性 |
+|------|-----------|--------|-----------|
+| file:line | escape() | 无效 | 宽字节绕过 |
+| file:line | trim() | 无效 | 非净化函数 |
 
 ### 攻击向量
 描述攻击者如何利用此漏洞。
@@ -1464,8 +1503,8 @@ HOTSPOTS: {file:line:断点描述} | ... (R2 优先深入，含断点上下文)
 
 | 检查项 | 要求 | 缺失处理 |
 |--------|------|----------|
-| 调用链 (Call Chain) | 必须从入口点追溯到 Sink | 标注 `[调用链缺失]` 并补充追踪 |
-| 数据流路径 | 必须标注 Source → Sink 的完整传播 | 标注 `[数据流不完整]` 并补充分析 |
+| 攻击路径 | 必须包含[步骤N] + 代码 + 操作类型 + 入口点 + Sink | 标注 `[攻击路径缺失]` 并补充追踪 |
+| 攻击路径摘要 | 必须包含调用层级 + 数据跨度 + 净化检查 | 标注 `[路径摘要缺失]` 并补充分析 |
 | PoC | 必须提供可复现的利用步骤或 payload | 标注 `[需验证]` 并说明原因 |
 | 代码片段 | 必须来自实际 Read 工具输出 | 重新读取文件获取真实代码 |
 
@@ -1548,15 +1587,27 @@ HOTSPOTS: {file:line:断点描述} | ... (R2 优先深入，含断点上下文)
 
 ### 发现去重规则
 
-同一漏洞的判定标准 (满足任一即为重复):
+**漏洞级去重** (满足任一即为重复):
 1. **同文件 + 同行号** → 合并
 2. **同文件 + 同漏洞类型 + 行号相差 < 10** → 合并
 3. **同文件 + 描述相似度 > 80%** → 合并
 
-合并策略:
-- 保留更详细的描述
-- 保留更高的严重等级
+**数据流级去重** (满足以下条件需合并):
+1. **相同 Source + 相同 Sink** → 同一数据流，合并
+2. **相同 Sink + 不同 Source 但传播路径重叠 > 50%** → 合并为多入口漏洞
+3. **相同攻击路径 (入口点→Sink)** → 合并
+
+**攻击路径级去重**:
+1. **完全相同攻击路径** → 合并
+2. **攻击路径前缀相同，仅 Sink 调用点不同** → 合并为"同入口多点Sink"
+3. **攻击路径中间层不同但入口和 Sink 相同** → 分别保留（不同攻击路径）
+
+**合并策略**:
+- 保留更详细的攻击路径（步骤更多）
+- 保留更详细的攻击路径摘要
 - 合并所有相关代码片段
+- 标注所有涉及的文件:行号
+- 标注合并来源: "合并自: 发现A ({agent_id}), 发现B ({agent_id})"
 
 ### 置信度标注
 
